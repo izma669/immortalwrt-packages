@@ -66,8 +66,6 @@ CONFIGURE_ARGS += \
 	--with-alsa \
 	--without-pulseaudio
 
-CONFIGURE_ARGS += LIBS="-ldl"
-
 TARGET_CFLAGS += $(FPIC)
 
 define Package/owntone/install
