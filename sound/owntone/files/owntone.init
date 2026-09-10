@@ -40,8 +40,11 @@ library {
 }
 
 audio {
-	nickname = "Local Audio Output"
-	type = "alsa"
+    nickname = "Local Audio Output"
+    type = "alsa"
+    card = "$(uci_get_by_type owntone card 'plughw:0')"
+    mixer = "$(uci_get_by_type owntone mixer '')"
+    mixer_device = "$(uci_get_by_type owntone mixer_device 'hw:0')"
 }
 EOF
 }
