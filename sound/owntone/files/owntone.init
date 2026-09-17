@@ -49,20 +49,86 @@ audio {
 EOF
 }
 
-start() {
-        gen_config_file
-        mkdir -p /var/cache/owntone
-        local enabled=$(uci_get_by_type owntone enabled 0)
-        [ "$enabled" == "0" ] && return 1
-        $SSD -p $PID -S -b -x $BIN -- -P $PID -c /var/etc/owntone.conf
+# ============================================================
+# 自动播放整个音乐库
+# ============================================================
+autoplay_library() {
+	local port=$(uci_get_by_type owntone port 3689)
+	local do_shuffle=$(uci_get_by_type owntone autoplay_random 0)
+	local do_repeat=$(uci_get_by_type owntone autoplay_repeat 0)
+	local url="http://127.0.0.1:${port}/api"
+	local i=0
+
+	command -v curl >/dev/null 2>&1 || {
+		logger -t owntone "autoplay: curl not found, skip"
+		return 1
+	}
+
+	# 等待 Owntone HTTP API 就绪（最多 30 秒）
+	while [ $i -lt 30 ]; do
+		curl -s -o /dev/null "${url}/player" && break
+		sleep 1
+		i=$((i + 1))
+	done
+
+	if [ $i -ge 30 ]; then
+		logger -t owntone "autoplay: API not ready, skip"
+		return 1
+	fi
+
+	# 1) 把整个音乐库加入队列并开始播放
+	curl -s -X POST \
+		"${url}/queue/items/add?expression=media_kind+is+music&clear=true&playback=start" \
+		>/dev/null 2>&1
+	sleep 2
+
+	# 2) 随机选曲（URL query 参数，值为 true/false）
+	if [ "$do_shuffle" = "1" ]; then
+		curl -s -X PUT "${url}/player/shuffle?state=true"  >/dev/null 2>&1
+	else
+		curl -s -X PUT "${url}/player/shuffle?state=false" >/dev/null 2>&1
+	fi
+
+	# 3) 列表循环（URL query 参数，值为 off/all/single）
+	if [ "$do_repeat" = "1" ]; then
+		curl -s -X PUT "${url}/player/repeat?state=all"  >/dev/null 2>&1
+	else
+		curl -s -X PUT "${url}/player/repeat?state=off" >/dev/null 2>&1
+	fi
+
+	# 4) 再显式 play 一次，确保真的开始播放
+	curl -s -X PUT "${url}/player/play" >/dev/null 2>&1
+
+	logger -t owntone "autoplay: library playback started (shuffle=${do_shuffle}, repeat=${do_repeat})"
 }
-	
+
+start() {
+	gen_config_file
+	mkdir -p /var/cache/owntone
+
+	local enabled=$(uci_get_by_type owntone enabled 0)
+	[ "$enabled" = "0" ] && return 1
+
+	$SSD -p $PID -S -b -x $BIN -- -P $PID -c /var/etc/owntone.conf
+
+	# ---- 自动播放开关 ----
+	local autoplay=$(uci_get_by_type owntone autoplay 0)
+	if [ "$autoplay" = "1" ]; then
+		# 后台执行，不阻塞服务启动
+		autoplay_library &
+	fi
+}
+
 stop() {
-        $SSD -p $PID -K -s SIGINT >/dev/null
+	$SSD -p $PID -K -s SIGINT >/dev/null
 }
 
 restart() {
-        stop
-        sleep 3
-        start
+	stop
+	local i=0
+	while [ -f $PID ] && [ $i -lt 10 ]; do
+		sleep 1
+		i=$((i + 1))
+	done
+	start
 }
