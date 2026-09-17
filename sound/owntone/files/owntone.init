@@ -4,6 +4,7 @@
 START=99
 BIN=/usr/sbin/owntone
 PID=/var/run/owntone.pid
+WATCHDOG_PID=/var/run/owntone_watchdog.pid
 SSD=start-stop-daemon
 
 NAME=owntone
@@ -102,6 +103,30 @@ autoplay_library() {
 	logger -t owntone "autoplay: library playback started (shuffle=${do_shuffle}, repeat=${do_repeat})"
 }
 
+# ============================================================
+# 看门狗：定时检测进程，崩溃后自动重启
+# ============================================================
+owntone_watchdog() {
+	while true; do
+		sleep 10
+		# 检查 PID 文件是否存在且进程是否存活
+		if [ ! -f $PID ] || ! kill -0 $(cat $PID) 2>/dev/null; then
+			# 仅当 UCI 中服务为启用状态时才重启
+			local enabled=$(uci_get_by_type owntone enabled 0)
+			if [ "$enabled" = "1" ]; then
+				logger -t owntone "watchdog: 检测到进程崩溃，正在自动重启..."
+				$SSD -p $PID -S -b -x $BIN -- -P $PID -c /var/etc/owntone.conf
+				
+				# 如果开启了自动播放，崩溃重启后也重新触发
+				local autoplay=$(uci_get_by_type owntone autoplay 0)
+				if [ "$autoplay" = "1" ]; then
+					autoplay_library &
+				fi
+			fi
+		fi
+	done
+}
+
 start() {
 	gen_config_file
 	mkdir -p /var/cache/owntone
@@ -109,7 +134,16 @@ start() {
 	local enabled=$(uci_get_by_type owntone enabled 0)
 	[ "$enabled" = "0" ] && return 1
 
+	# 先清理可能残留的看门狗进程
+	[ -f $WATCHDOG_PID ] && kill $(cat $WATCHDOG_PID) 2>/dev/null
+	rm -f $WATCHDOG_PID
+
+	# 启动 owntone 主进程
 	$SSD -p $PID -S -b -x $BIN -- -P $PID -c /var/etc/owntone.conf
+
+	# 启动看门狗（后台运行，并保存其 PID）
+	owntone_watchdog >/dev/null 2>&1 &
+	echo $! > $WATCHDOG_PID
 
 	# ---- 自动播放开关 ----
 	local autoplay=$(uci_get_by_type owntone autoplay 0)
@@ -120,6 +154,11 @@ start() {
 }
 
 stop() {
+	# 先停止看门狗，防止它反复拉起 owntone
+	if [ -f $WATCHDOG_PID ]; then
+		kill $(cat $WATCHDOG_PID) 2>/dev/null
+		rm -f $WATCHDOG_PID
+	fi
 	$SSD -p $PID -K -s SIGINT >/dev/null
 }
 
