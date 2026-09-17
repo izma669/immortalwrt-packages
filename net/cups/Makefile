@@ -183,9 +183,7 @@ define Build/Configure
 		--disable-cdsassl \
 		--disable-ssl \
 		--disable-gssapi \
-# 在 Build/Configure 中添加
 		--disable-tiff, \
-		--with-languages=zh_CN, \
 		UNAME="Linux" \
 		LIBS="$(TARGET_LDFLAGS) -lz -lpng -ljpeg" \
 	)
@@ -219,9 +217,6 @@ define Package/cups/install
 	$(INSTALL_DIR) $(1)/usr/share/cups/templates
 	$(CP) $(PKG_INSTALL_DIR)/usr/share/cups/templates/*.tmpl \
 		$(1)/usr/share/cups/templates/
-	$(INSTALL_DIR) $(1)/usr/share/cups/templates/zh_CN
-	$(CP) $(PKG_INSTALL_DIR)/usr/share/cups/templates/zh_CN/* \
-		$(1)/usr/share/cups/templates/zh_CN/
 	$(INSTALL_DIR) $(1)/usr/share/cups/mime
 	$(CP) $(PKG_INSTALL_DIR)/usr/share/cups/mime/* $(1)/usr/share/cups/mime/
 	### Do install docs: cups web interface relies on them
@@ -246,9 +241,6 @@ define Package/cups/install
 		$(PKG_INSTALL_DIR)/usr/sbin/{cupsctl,cupsd} \
 		$(1)/usr/sbin/
 	# needed for cups to find usb printers per http://wiki.openwrt.org/doc/howto/cups.server
-	$(INSTALL_DIR) $(1)/usr/share/locale/zh_CN/LC_MESSAGES
-	$(CP) $(PKG_INSTALL_DIR)/usr/share/locale/zh_CN/LC_MESSAGES/*.mo \
-		$(1)/usr/share/locale/zh_CN/LC_MESSAGES/
 	chmod 700 $(1)/usr/lib/cups/backend/usb
 endef
 
