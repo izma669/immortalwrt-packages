@@ -20,7 +20,9 @@ uci_get_by_type() {
 }
 
 gen_config_file() {
-cat <<-EOF >/var/etc/owntone.conf
+	# 已删除所有声卡绑定相关的配置
+	# 生成最精简的音频配置，让 OwnTone 使用默认软件音量
+	cat <<-EOF >/var/etc/owntone.conf
 general {
 	uid = "root"
 	db_path = "$(uci_get_by_type owntone db_path)"
@@ -43,9 +45,9 @@ library {
 audio {
     nickname = "Local Audio Output"
     type = "alsa"
-    card = "$(uci_get_by_type owntone card 'plughw:0')"
-    mixer = "$(uci_get_by_type owntone mixer '')"
-    mixer_device = "$(uci_get_by_type owntone mixer_device 'hw:0')"
+    card = "softvol"
+    mixer = "Softvol"
+    mixer_device = "hw:0"
 }
 EOF
 }
@@ -137,6 +139,9 @@ start() {
 	# 先清理可能残留的看门狗进程
 	[ -f $WATCHDOG_PID ] && kill $(cat $WATCHDOG_PID) 2>/dev/null
 	rm -f $WATCHDOG_PID
+
+	# 唤醒 softvol 控件，防止 OwnTone 启动时找不到
+	aplay -D softvol /dev/zero -d 1 >/dev/null 2>&1 || true
 
 	# 启动 owntone 主进程
 	$SSD -p $PID -S -b -x $BIN -- -P $PID -c /var/etc/owntone.conf
