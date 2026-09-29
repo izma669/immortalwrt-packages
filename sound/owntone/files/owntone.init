@@ -145,8 +145,9 @@ start() {
 	[ -f $WATCHDOG_PID ] && kill $(cat $WATCHDOG_PID) 2>/dev/null
 	rm -f $WATCHDOG_PID
 
-	# 唤醒 softvol 控件，防止 OwnTone 启动时找不到
-	aplay -D softvol /dev/zero -d 1 >/dev/null 2>&1 || true
+    # 提前激活softvol软声卡防止播放器启动前找不到
+    aplay -D softvol /dev/zero -d 1 >/dev/null 2>&1
+    sleep 1
 
 	# 启动 owntone 主进程
 	$SSD -p $PID -S -b -x $BIN -- -P $PID -c /var/etc/owntone.conf
