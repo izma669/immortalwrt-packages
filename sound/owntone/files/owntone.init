@@ -29,7 +29,6 @@ general {
 	logfile = "/var/log/owntone.log"
 	loglevel = log
 	ipv6 = yes
-	cache_path = "/var/owntone-cache.db"
 }
 
 library {
