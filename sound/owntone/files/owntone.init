@@ -60,53 +60,69 @@ EOF
 # 自动播放整个音乐库
 # ============================================================
 autoplay_library() {
-	local port=$(uci_get_by_type owntone port 3689)
-	local do_shuffle=$(uci_get_by_type owntone autoplay_random 0)
-	local do_repeat=$(uci_get_by_type owntone autoplay_repeat 0)
-	local url="http://127.0.0.1:${port}/api"
-	local i=0
+    local port=$(uci_get_by_type owntone port 3689)
+    local do_shuffle=$(uci_get_by_type owntone autoplay_random 0)
+    local do_repeat=$(uci_get_by_type owntone autoplay_repeat 0)
+    local url="http://127.0.0.1:${port}/api"
+    local i=0
 
-	command -v curl >/dev/null 2>&1 || {
-		logger -t owntone "autoplay: curl not found, skip"
-		return 1
-	}
+    command -v curl >/dev/null 2>&1 || {
+        logger -t owntone "autoplay: curl not found, skip"
+        return 1
+    }
 
-	# 等待 Owntone HTTP API 就绪（最多 30 秒）
-	while [ $i -lt 30 ]; do
-		curl -s -o /dev/null "${url}/player" && break
-		sleep 1
-		i=$((i + 1))
-	done
+    # 阶段1：等 HTTP API 就绪（最多 60 秒）
+    while [ $i -lt 60 ]; do
+        curl -s -o /dev/null "${url}/player" && break
+        sleep 1
+        i=$((i + 1))
+    done
 
-	if [ $i -ge 30 ]; then
-		logger -t owntone "autoplay: API not ready, skip"
-		return 1
-	fi
+    if [ $i -ge 60 ]; then
+        logger -t owntone "autoplay: API not ready after 60s, skip"
+        return 1
+    fi
 
-	# 1) 把整个音乐库加入队列并开始播放
-	curl -s -X POST \
-		"${url}/queue/items/add?expression=media_kind+is+music&clear=true&playback=start" \
-		>/dev/null 2>&1
-	sleep 2
+    # 阶段2：等音乐库扫描完成（最多再等 120 秒）
+    local j=0
+    while [ $j -lt 120 ]; do
+        local library_json=$(curl -s --connect-timeout 2 "${url}/library" 2>/dev/null)
+        # 若 API 返回正常内容，说明库已可用
+        if [ -n "$library_json" ] && echo "$library_json" | grep -q '"uri"'; then
+            break
+        fi
+        sleep 2
+        j=$((j + 2))
+    done
 
-	# 2) 随机选曲（URL query 参数，值为 true/false）
-	if [ "$do_shuffle" = "1" ]; then
-		curl -s -X PUT "${url}/player/shuffle?state=true"  >/dev/null 2>&1
-	else
-		curl -s -X PUT "${url}/player/shuffle?state=false" >/dev/null 2>&1
-	fi
+    if [ $j -ge 120 ]; then
+        logger -t owntone "autoplay: library scan not ready, skip"
+        return 1
+    fi
 
-	# 3) 列表循环（URL query 参数，值为 off/all/single）
-	if [ "$do_repeat" = "1" ]; then
-		curl -s -X PUT "${url}/player/repeat?state=all"  >/dev/null 2>&1
-	else
-		curl -s -X PUT "${url}/player/repeat?state=off" >/dev/null 2>&1
-	fi
+    # 阶段3：稍微等一下数据库写入空闲
+    sleep 3
 
-	# 4) 再显式 play 一次，确保真的开始播放
-	curl -s -X PUT "${url}/player/play" >/dev/null 2>&1
+    # 现在安全了：加入队列并播放
+    curl -s -X POST \
+        "${url}/queue/items/add?expression=media_kind+is+music&clear=true&playback=start" \
+        >/dev/null 2>&1
+    sleep 2
 
-	logger -t owntone "autoplay: library playback started (shuffle=${do_shuffle}, repeat=${do_repeat})"
+    if [ "$do_shuffle" = "1" ]; then
+        curl -s -X PUT "${url}/player/shuffle?state=true"  >/dev/null 2>&1
+    else
+        curl -s -X PUT "${url}/player/shuffle?state=false" >/dev/null 2>&1
+    fi
+
+    if [ "$do_repeat" = "1" ]; then
+        curl -s -X PUT "${url}/player/repeat?state=all"  >/dev/null 2>&1
+    else
+        curl -s -X PUT "${url}/player/repeat?state=off" >/dev/null 2>&1
+    fi
+
+    curl -s -X PUT "${url}/player/play" >/dev/null 2>&1
+    logger -t owntone "autoplay: library playback started (shuffle=${do_shuffle}, repeat=${do_repeat})"
 }
 
 # ============================================================
