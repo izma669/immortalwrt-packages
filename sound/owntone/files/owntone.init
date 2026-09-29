@@ -33,13 +33,18 @@ general {
 }
 
 library {
-	name = "My Music on OpenWrt"
-	port = $(uci_get_by_type owntone port 3689)
-	directories = { "$(uci_get_by_type owntone directories)" }
-	podcasts = { "/Podcasts" }
-	audiobooks = { "/Audiobooks" }
-	compilations = { "/Compilations" }
-	compilation_artist = "Various Artists"
+    name = "$(uci_get_by_type owntone player_name 'My Music on OpenWrt')"
+    port = $(uci_get_by_type owntone port 3689)
+    directories = { "$(uci_get_by_type owntone directories)" }
+    podcasts = { "/Podcasts" }
+    audiobooks = { "/Audiobooks" }
+    compilations = { "/Compilations" }
+    compilation_artist = "Various Artists"
+    filescan_disable = $filescan_disabled
+}
+
+mpd {
+    port = $(uci_get_by_type owntone mpd_port '6600')
 }
 
 audio {
