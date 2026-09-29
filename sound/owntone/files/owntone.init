@@ -135,6 +135,17 @@ owntone_watchdog() {
 }
 
 start() {
+    # 首次启动延迟（仅系统开机时生效，手动重启不延迟）
+    local DELAY_FLAG=/tmp/.owntone_boot_done
+    if [ ! -f "$DELAY_FLAG" ]; then
+        local delay=$(uci_get_by_type owntone delay_start 10)
+        [ "$delay" -gt 0 ] 2>/dev/null && {
+            logger -t owntone "首次启动，延迟 ${delay} 秒等待系统就绪..."
+            sleep "$delay"
+        }
+        touch "$DELAY_FLAG"
+    fi
+
 	gen_config_file
 	mkdir -p /var/cache/owntone
 
