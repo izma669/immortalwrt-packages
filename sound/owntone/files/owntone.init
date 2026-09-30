@@ -29,6 +29,7 @@ general {
 	logfile = "/var/log/owntone.log"
 	loglevel = log
 	ipv6 = yes
+	cache_path = "/var/owntone-cache.db"
 }
 
 library {
@@ -82,12 +83,12 @@ autoplay_library() {
         return 1
     fi
 
-    # 阶段2：等音乐库扫描完成（最多再等 120 秒）
+     # 阶段2：等音乐库扫描完成（最多再等 120 秒）
     local j=0
     while [ $j -lt 120 ]; do
+        # 改用 /api/library，检查是否返回了歌曲数量（正常时字段为 "songs"）
         local library_json=$(curl -s --connect-timeout 2 "${url}/library" 2>/dev/null)
-        # 若 API 返回正常内容，说明库已可用
-        if [ -n "$library_json" ] && echo "$library_json" | grep -q '"uri"'; then
+        if echo "$library_json" | grep -qE '"songs"|"tracks"|"uri"'; then
             break
         fi
         sleep 2
@@ -95,7 +96,7 @@ autoplay_library() {
     done
 
     if [ $j -ge 120 ]; then
-        logger -t owntone "autoplay: library scan not ready, skip"
+        logger -t owntone "autoplay: library scan not ready after 120s, skip"
         return 1
     fi
 
