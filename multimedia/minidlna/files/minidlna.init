@@ -50,6 +50,7 @@ minidlna_create_config() {
 	echo "port=$port"
 	echo "network_interface=$interface"
 
+	minidlna_cfg_addbool "$cfg" expose_cue '0'
 	minidlna_cfg_addstr "$cfg" friendly_name
 	minidlna_cfg_addstr "$cfg" user
 	minidlna_cfg_addstr "$cfg" db_dir
