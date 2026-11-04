@@ -1,0 +1,179 @@
+--- a/utils.c
++++ b/utils.c
+@@ -325,6 +325,9 @@
+ const char *
+ mime_to_ext(const char * mime)
+ {
++	if( strcmp(mime, "text/plain") == 0 )
++		return "txt";
++
+ 	switch( *mime )
+ 	{
+ 		/* Audio extensions */
+@@ -419,7 +422,15 @@
+ 		ends_with(file, ".mp4") || ends_with(file, ".m4p")  ||
+ 		ends_with(file, ".wav") || ends_with(file, ".ogg")  ||
+ 		ends_with(file, ".pcm") || ends_with(file, ".3gp")  ||
+-		ends_with(file, ".dsf") || ends_with(file, ".dff"));
++		ends_with(file, ".dsf") || ends_with(file, ".dff") ||
++		is_extra_file(file));
++}
++
++int
++is_extra_file(const char * file)
++{
++	return ((runtime_vars.expose_cue && ends_with(file, ".cue")) ||
++	        (runtime_vars.expose_lrc && ends_with(file, ".lrc")));
+ }
+ 
+ int
+--- a/utils.h
++++ b/utils.h
+@@ -86,6 +86,7 @@
+ /* Metadata functions */
+ int is_video(const char * file);
+ int is_audio(const char * file);
++int is_extra_file(const char * file);
+ int is_image(const char * file);
+ int is_playlist(const char * file);
+ int is_caption(const char * file);
+--- a/metadata.c
++++ b/metadata.c
+@@ -294,6 +294,26 @@
+ 	return ret;
+ }
+ 
++static int64_t
++GetTextMetadata(const char *path, const char *name)
++{
++	struct stat file;
++	int64_t ret;
++
++	if( stat(path, &file) != 0 )
++		return 0;
++
++	ret = sql_exec(db, "INSERT into DETAILS"
++	                   " (TITLE, PATH, SIZE, TIMESTAMP, MIME) "
++	                   "VALUES"
++	                   " ('%q', %Q, %lld, %lld, 'text/plain');",
++	                   name, path, (long long)file.st_size, (long long)file.st_mtime);
++	if( ret != SQLITE_OK )
++		return 0;
++
++	return sqlite3_last_insert_rowid(db);
++}
++
+ int64_t
+ GetAudioMetadata(const char *path, const char *name)
+ {
+@@ -308,6 +328,9 @@
+ 	metadata_t m;
+ 	uint32_t free_flags = FLAG_MIME|FLAG_DURATION|FLAG_DLNA_PN|FLAG_DATE;
+ 	memset(&m, '\0', sizeof(metadata_t));
++
++	if( is_extra_file(path) )
++		return GetTextMetadata(path, name);
+ 
+ 	if ( stat(path, &file) != 0 )
+ 		return 0;
+--- a/options.c
++++ b/options.c
+@@ -68,6 +68,8 @@
+ 	{ WIDE_LINKS, "wide_links" },
+ 	{ TIVO_DISCOVERY, "tivo_discovery" },
+ 	{ ENABLE_SUBTITLES, "enable_subtitles" },
++	{ EXPOSE_CUE, "expose_cue" },
++	{ EXPOSE_LRC, "expose_lrc" },
+ };
+ 
+ int
+--- a/options.h
++++ b/options.h
+@@ -61,6 +61,8 @@
+ 	WIDE_LINKS,			/* allow following symlinks outside the defined media_dirs */
+ 	TIVO_DISCOVERY,			/* TiVo discovery protocol: bonjour or beacon. Defaults to bonjour if supported */
+ 	ENABLE_SUBTITLES,		/* Enable generic subtitle support for all clients by default */
++	EXPOSE_CUE,			/* expose .cue files as DLNA items */
++	EXPOSE_LRC,			/* expose .lrc files as DLNA items */
+ };
+ 
+ /* readoptionsfile()
+--- a/minidlna.c
++++ b/minidlna.c
+@@ -588,6 +588,8 @@
+ 	runtime_vars.max_connections = 50;
+ 	runtime_vars.root_container = NULL;
+ 	runtime_vars.ifaces[0] = NULL;
++	runtime_vars.expose_cue = 0;
++	runtime_vars.expose_lrc = 0;
+ 
+ 	/* read options file first since
+ 	 * command line arguments have final say */
+@@ -812,6 +814,12 @@
+ 			if (!strtobool(ary_options[i].value))
+ 				CLEARFLAG(SUBTITLES_MASK);
+ 			break;
++		case EXPOSE_CUE:
++			runtime_vars.expose_cue = strtobool(ary_options[i].value);
++			break;
++		case EXPOSE_LRC:
++			runtime_vars.expose_lrc = strtobool(ary_options[i].value);
++			break;
+ 		default:
+ 			DPRINTF(E_ERROR, L_GENERAL, "Unknown option in file %s\n",
+ 				optionsfile);
+--- a/minidlnatypes.h
++++ b/minidlnatypes.h
+@@ -49,6 +49,8 @@
+ 	int port;	/* HTTP Port */
+ 	int notify_interval;	/* seconds between SSDP announces */
+ 	int max_connections;	/* max number of simultaneous conenctions */
++	int expose_cue;		/* expose .cue files as DLNA items */
++	int expose_lrc;		/* expose .lrc files as DLNA items */
+ 	const char *root_container;	/* root ObjectID (instead of "0") */
+ 	const char *ifaces[MAX_LAN_ADDR];	/* list of configured network interfaces */
+ };
+--- a/upnpsoap.c
++++ b/upnpsoap.c
+@@ -758,6 +758,32 @@
+ 	                          detailID, dstw, dsth);
+ }
+ 
++static const char *
++get_text_ext(const char *id)
++{
++	static char ext[8];
++	char *path;
++	const char *dot;
++	char *p;
++	long long detail_id;
++
++	strcpy(ext, "txt");
++	detail_id = strtoll(id, NULL, 10);
++	path = sql_get_text_field(db, "SELECT PATH from DETAILS where ID = '%lld'", detail_id);
++	if( path )
++	{
++		dot = strrchr(path, '.');
++		if( dot && dot[1] && strlen(dot + 1) < sizeof(ext) )
++		{
++			strcpy(ext, dot + 1);
++			for( p = ext; *p; p++ )
++				*p = tolower(*p);
++		}
++		sqlite3_free(path);
++	}
++	return ext;
++}
++
+ inline static void
+ add_res(char *size, char *duration, char *bitrate, char *sampleFrequency,
+         char *nrAudioChannels, char *resolution, char *dlna_pn, char *mime,
+@@ -1077,6 +1103,8 @@
+ 		}
+ 		if( passed_args->filter & FILTER_RES ) {
+ 			ext = mime_to_ext(mime);
++			if( *mime == 't' )
++				ext = get_text_ext(detailID);
+ 			add_res(size, duration, bitrate, sampleFrequency, nrAudioChannels,
+ 			        resolution, dlna_buf, mime, detailID, ext, passed_args);
+ 			if( *mime == 'i' ) {
