@@ -8,6 +8,9 @@ USE_PROCD=1
 
 MINIDLNA_CONFIG_FILE="/var/etc/minidlna.conf"
 
+EXTRA_COMMANDS="rebuild"
+EXTRA_HELP="	rebuild	Delete the media database and rescan all media directories"
+
 minidlna_cfg_addbool() {
 	local cfg="$1"
 	local key="$2"
@@ -50,6 +53,8 @@ minidlna_create_config() {
 	echo "port=$port"
 	echo "network_interface=$interface"
 
+	minidlna_cfg_addbool "$cfg" expose_cue '0'
+	minidlna_cfg_addbool "$cfg" expose_lrc '0'
 	minidlna_cfg_addstr "$cfg" friendly_name
 	minidlna_cfg_addstr "$cfg" user
 	minidlna_cfg_addstr "$cfg" db_dir
@@ -106,4 +111,15 @@ start_service() {
 
 service_triggers() {
 	procd_add_reload_trigger "minidlna"
+}
+
+rebuild() {
+	local db_dir
+
+	config_load 'minidlna'
+	config_get db_dir config 'db_dir' '/var/run/minidlna'
+
+	stop
+	rm -rf "$db_dir"/files.db* "$db_dir/art_cache"
+	start
 }
